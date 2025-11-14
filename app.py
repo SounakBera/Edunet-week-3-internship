@@ -1,5 +1,6 @@
 import pandas as pd
 from flask import Flask, request, jsonify, render_template_string
+import random # <-- ADDED THIS IMPORT
 
 # Initialize the Flask app
 app = Flask(__name__)
@@ -14,7 +15,7 @@ except FileNotFoundError:
     print("ERROR: cars_data_cleaned.csv not found.")
     df = pd.DataFrame() # Create empty dataframe to avoid errors
 
-# --- Chatbot Logic (Same as before) ---
+# --- Chatbot Logic (NOW MORE HUMAN-LIKE) ---
 def process_query(query):
     """
     Processes a user's text query and returns a string response.
@@ -24,10 +25,32 @@ def process_query(query):
     if df.empty:
         return "Sorry, I can't access the car data at the moment."
 
-    if query in ["hi", "hello", "hey"]:
-        return "Hi! I'm an EV chatbot. Ask me about the data. You can ask 'longest range', 'cheapest car', or 'info on [Brand]'."
+    # --- NEW: Conversational Intents ---
+    greetings = ["hi", "hello", "hey", "yo", "howdy"]
+    if query in greetings:
+        responses = [
+            "Hi there! Ask me about the EV data.",
+            "Hello! What EV info are you looking for?",
+            "Hey! How can I help with the car data today?"
+        ]
+        return random.choice(responses)
 
-    elif query == "how many cars are there?":
+    thanks_bye = ["thanks", "thank you", "bye", "goodbye", "ttyl", "cya"]
+    if any(phrase in query for phrase in thanks_bye):
+        responses = [
+            "You're welcome! Happy to help.",
+            "No problem! Have a great day.",
+            "My pleasure! Let me know if you need anything else.",
+            "Goodbye!"
+        ]
+        return random.choice(responses)
+
+    help_identity = ["help", "what can you do", "who are you", "info"]
+    if query in help_identity:
+        return "I'm an EV chatbot! You can ask me questions like 'what's the fastest car?', 'cheapest car for TESLA', or 'tell me about PORSCHE'."
+
+    # --- Standard Data Questions ---
+    if query == "how many cars are there?":
         return f"There are {len(df)} car models in the dataset."
 
     elif query == "what brands are available?":
@@ -36,41 +59,93 @@ def process_query(query):
         brands.sort()
         return f"Available brands: {', '.join(brands)}"
 
-    elif query.startswith("info on "):
-        # Find the brand name, even if it's multiple words
-        brand_name = query[len("info on "):].upper() 
-        
-        brand_data = df[df['Brand'] == brand_name]
-        
-        if brand_data.empty:
-            return f"Sorry, I have no information on the brand '{brand_name}'."
-        else:
-            avg_val = brand_data['Estimated_US_Value'].mean()
-            avg_range = brand_data['km_of_range'].mean()
-            return f"I found {len(brand_data)} models for {brand_name}. Average US value: ${avg_val:,.2f}. Average range: {avg_range:,.1f} km."
+    # --- More flexible logic (from before) ---
 
-    elif query == "longest range":
-        car = df.loc[df['km_of_range'].idxmax()]
-        return f"The car with the longest range is the {car['Brand']} {car['Model']}, with {car['km_of_range']} km."
+    # Helper to find brand in query
+    all_brands = list(df['Brand'].unique())
+    
+    def find_brand_in_query(q):
+        for brand in all_brands:
+            if brand.lower() in q:
+                return brand
+        # Check for the old "info on [Brand]" style as a fallback
+        if q.startswith("info on "):
+            brand_name_from_query = q[len("info on "):].upper()
+            if brand_name_from_query in all_brands:
+                return brand_name_from_query
+        return None
 
-    elif query == "cheapest car":
+    found_brand = find_brand_in_query(query)
+    
+    # Create a working DataFrame (df_context) that is filtered if a brand is found
+    df_context = df
+    context_text = "Overall"
+    context_text_lower = "overall"
+    
+    if found_brand:
+        df_context = df[df['Brand'] == found_brand]
+        context_text = f"For {found_brand}"
+        context_text_lower = f"for {found_brand}"
+        if df_context.empty:
+            return f"I found {found_brand} in your query, but I have no data for that brand."
+
+    # --- Intent 1: Extremums (Max/Min) ---
+    
+    if ("longest" in query or "most" in query or "highest" in query) and "range" in query:
+        car = df_context.loc[df_context['km_of_range'].idxmax()]
+        responses = [
+            f"{context_text}, the car with the longest range is the {car['Brand']} {car['Model']}, with {car['km_of_range']} km.",
+            f"{context_text}, I found the {car['Brand']} {car['Model']} has the most range: {car['km_of_range']} km.",
+            f"{context_text}, if you're looking for range, the {car['Brand']} {car['Model']} leads the pack at {car['km_of_range']} km."
+        ]
+        return random.choice(responses)
+
+    if "cheapest" in query or "lowest price" in query:
         # Filter out cars with 0 value, as that's likely missing data
-        non_zero_df = df[df['Estimated_US_Value'] > 0]
+        non_zero_df = df_context[df_context['Estimated_US_Value'] > 0]
         if non_zero_df.empty:
-            return "Sorry, I couldn't find any cars with a valid price."
+            return f"Sorry, I couldn't find any cars with a valid price {context_text_lower}."
         car = non_zero_df.loc[non_zero_df['Estimated_US_Value'].idxmin()]
-        return f"The cheapest car (with a valid price) is the {car['Brand']} {car['Model']}, valued at ${car['Estimated_US_Value']:,.0f}."
+        responses = [
+            f"{context_text}, the cheapest car (with a valid price) is the {car['Brand']} {car['Model']}, valued at ${car['Estimated_US_Value']:,.0f}.",
+            f"{context_text}, the best value I see is the {car['Brand']} {car['Model']}, at ${car['Estimated_US_Value']:,.0f}.",
+            f"{context_text}, the {car['Brand']} {car['Model']} is the most affordable at ${car['Estimated_US_Value']:,.0f}."
+        ]
+        return random.choice(responses)
+    
+    if ("fastest" in query or "quickest" in query) or ("0-100" in query):
+        car = df_context.loc[df_context['0-100'].idxmin()]
+        responses = [
+            f"{context_text}, the quickest car (0-100 km/h) is the {car['Brand']} {car['Model']} at {car['0-100']} seconds.",
+            f"{context_text}, for acceleration, nothing beats the {car['Brand']} {car['Model']} at {car['0-100']}s.",
+            f"{context_text}, the {car['Brand']} {car['Model']} has the fastest 0-100 time: {car['0-100']}s."
+        ]
+        return random.choice(responses)
 
-    elif query == "fastest car": # Based on 0-100 time
-        car = df.loc[df['0-100'].idxmin()]
-        return f"The quickest car (0-100 km/h) is the {car['Brand']} {car['Model']} at {car['0-100']} seconds."
+    if ("most" in query or "highest" in query) and "towing" in query:
+        car = df_context.loc[df_context['Towing_capacity_in_kg'].idxmax()]
+        responses = [
+            f"{context_text}, the car with the most towing capacity is the {car['Brand']} {car['Model']}, at {car['Towing_capacity_in_kg']} kg.",
+            f"{context_text}, if you need to tow, the {car['Brand']} {car['Model']} is your best bet at {car['Towing_capacity_in_kg']} kg."
+        ]
+        return random.choice(responses)
 
-    elif query == "most towing capacity":
-        car = df.loc[df['Towing_capacity_in_kg'].idxmax()]
-        return f"The car with the most towing capacity is the {car['Brand']} {car['Model']}, at {car['Towing_capacity_in_kg']} kg."
+    # --- Intent 2: Brand Info (as a fallback if no extremum was asked) ---
+    # This intent is *only* triggered if a brand was found but no extremum
+    if found_brand:
+        # 'found_brand' is already set, 'df_context' is already filtered
+        avg_val = df_context['Estimated_US_Value'].mean()
+        avg_range = df_context['km_of_range'].mean()
+        return f"I found {len(df_context)} models for {found_brand}. On average, they cost ${avg_val:,.2f} and have a range of {avg_range:,.1f} km."
 
+    # --- Fallback ---
     else:
-        return "Sorry, I don't understand that. Try 'longest range', 'cheapest car', or 'info on [Brand]'."
+        responses = [
+            "Sorry, I'm not sure how to answer that. Try asking about 'fastest', 'cheapest', or 'range'.",
+            "Hmm, I don't understand that. You can ask 'help' to see what I can do.",
+            "I didn't quite get that. Try 'longest range', 'cheapest car for TESLA', or 'tell me about PORSCHE'."
+        ]
+        return random.choice(responses)
 
 # --- API Endpoint (Same as before) ---
 # This route is for the chatbot API
