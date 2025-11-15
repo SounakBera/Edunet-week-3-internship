@@ -18,10 +18,10 @@ REQUIRED_COLUMNS = [
 # ==============================
 # Page Configuration
 # ==============================
-st.set_page_config(page_title="EV App", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="EV Data Hub", page_icon="⚡", layout="wide")
 
 # ==============================
-# Load Model (No changes)
+# Load Model
 # ==============================
 @st.cache_resource
 def load_model():
@@ -37,9 +37,10 @@ def load_model():
 model = load_model()
 
 # ==============================
-# Data Loading & Processing (NEW LOGIC)
+# Data Loading & Processing
 # ==============================
 
+@st.cache_data
 def load_default_data():
     """Loads the default CSV file."""
     try:
@@ -85,7 +86,7 @@ def process_dataframe(df):
         return df
 
 # ==============================
-# Helper Function (REFACTORED)
+# Helper Function
 # ==============================
 def find_car(query, df):
     """
@@ -119,7 +120,7 @@ def find_car(query, df):
     return None
 
 # ==============================
-# Chatbot Logic (REFACTORED)
+# Chatbot Logic
 # ==============================
 def process_query(query, df):
     """
@@ -309,14 +310,14 @@ def process_query(query, df):
     # === FALLBACK ===
     return random.choice([
         "I didn't quite get that. Try:\n"
-        "• `Tesla vs BMW`\n"
-        "• `tell me about Model Y`\n"
-        "• `longest range Porsche`\n"
-        "• `show summary`",
+        "• Tesla vs BMW\n"
+        "• tell me about Model Y\n"
+        "• longest range Porsche\n"
+        "• show summary",
         "Hmm, try asking:\n"
-        "• **Compare**: `Model 3 vs i4`\n"
-        "• **Best**: `cheapest Tesla`\n"
-        "• **Stats**: `how many cars?`"
+        "• **Compare**: Model 3 vs i4\n"
+        "• **Best**: cheapest Tesla\n"
+        "• **Stats**: how many cars?"
     ])
 
 # ==============================
@@ -331,15 +332,20 @@ if 'active_df' not in st.session_state:
     st.session_state.data_valid = True # Assume default data is valid
 
 # --- Sidebar for Navigation and File Upload ---
-st.sidebar.title("EV App Navigation")
+st.sidebar.title("⚡ EV Data Hub")
+st.sidebar.markdown("---")
+
+# --- NEW: Added "Home" page as the first (default) option
 page = st.sidebar.selectbox("Choose a feature", [
-    "EV Price Predictor",
-    "EV Data Chatbot",
-    "Data Visualization"
+    "🏠 Home",
+    "🤖 EV Price Predictor",
+    "💬 EV Data Chatbot",
+    "📊 Data Visualization"
 ])
 
-st.sidebar.divider()
+st.sidebar.markdown("---")
 st.sidebar.header("Data Source")
+st.sidebar.info("Upload a CSV to power the Chatbot and Visualizations.")
 
 uploaded_file = st.sidebar.file_uploader("Upload your own EV CSV", type="csv")
 if uploaded_file is not None:
@@ -347,6 +353,9 @@ if uploaded_file is not None:
         user_df = pd.read_csv(uploaded_file)
         st.session_state.active_df = process_dataframe(user_df)
         st.session_state.data_source = uploaded_file.name
+        st.toast(f"✅ Successfully loaded {uploaded_file.name}!")
+        if "messages" in st.session_state:
+            del st.session_state.messages
     except Exception as e:
         st.sidebar.error(f"Error reading file: {e}")
         st.session_state.data_valid = False
@@ -355,32 +364,67 @@ if st.sidebar.button("Reset to Default Data"):
     default_df = load_default_data()
     st.session_state.active_df = process_dataframe(default_df)
     st.session_state.data_source = "Default Data"
+    st.toast("🔄 Reset to default dataset.")
+    if "messages" in st.session_state:
+        del st.session_state.messages
     st.rerun()
 
 st.sidebar.metric("Active Data Source", st.session_state.data_source)
 if not st.session_state.get('data_valid', True):
-    st.sidebar.error("Data is missing required columns. App features are limited.")
+    st.sidebar.error("Data is missing required columns. Chatbot and Viz are disabled.")
 
 # ==============================
-# 1. EV Price Predictor (No changes)
+# NEW: 0. Home Page
 # ==============================
-if page == "EV Price Predictor":
-    st.image("https://cdn.pixabay.com/photo/2022/01/25/19/12/electric-car-6968348_1280.jpg", use_container_width=True)
-    st.title("EV Price Predictor")
-    st.markdown("### Tune specs → Get instant price estimate")
-    st.info("This predictor uses a pre-trained model and is independent of the uploaded data.")
-
-    col1, col2 = st.columns(2)
+if page == "🏠 Home":
+    st.title("⚡ Welcome to the EV Data Hub")
+    st.markdown("This app is your all-in-one tool for exploring, analyzing, and predicting information about Electric Vehicles.")
+    
+    st.image("https://cdn.pixabay.com/photo/2024/04/11/15/22/ev-8690460_1280.jpg", use_container_width=True)
+    
+    st.subheader("What You Can Do:", divider="rainbow")
+    
+    col1, col2, col3 = st.columns(3)
+    
     with col1:
-        battery = st.number_input("Battery (kWh)", 20.0, 150.0, 75.0)
-        accel = st.number_input("0-100 km/h (sec)", 2.0, 20.0, 6.0)
-        seats = st.slider("Seats", 2, 8, 5)
+        with st.container(border=True):
+            st.markdown("#### 🤖 EV Price Predictor")
+            st.markdown("Estimate the price of an EV based on its technical specs. This feature uses a pre-trained model and works independently of the uploaded data.")
+            
     with col2:
-        top_speed = st.number_input("Top Speed (km/h)", 100, 400, 200)
-        range_km = st.number_input("Range (km)", 100, 800, 400)
-        efficiency = st.number_input("Efficiency (Wh/km)", 100, 300, 180)
+        with st.container(border=True):
+            st.markdown("#### 💬 EV Data Chatbot")
+            st.markdown("Ask natural language questions about the active dataset. You can compare models, find the 'best' car for your needs, or get a quick summary.")
+            
+    with col3:
+        with st.container(border=True):
+            st.markdown("#### 📊 Data Visualization")
+            st.markdown("Use interactive charts and filters to explore the entire EV dataset. Discover trends in price, range, efficiency, and performance across brands.")
 
-    if st.button("Predict Price", type="primary"):
+    st.info("**Get Started:** Select a feature from the sidebar to begin. You can use the pre-loaded default data or upload your own CSV file!")
+
+
+# ==============================
+# 1. EV Price Predictor
+# ==============================
+elif page == "🤖 EV Price Predictor":
+    st.image("https://cdn.pixabay.com/photo/2022/01/25/19/12/electric-car-6968348_1280.jpg", use_container_width=True)
+    st.title("🤖 EV Price Predictor")
+    st.markdown("### Tune specs → Get instant price estimate")
+    st.info("ℹ️ This predictor uses a pre-trained model and is independent of the data you upload.")
+
+    with st.container(border=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            battery = st.number_input("Battery (kWh)", 20.0, 150.0, 75.0)
+            accel = st.number_input("0-100 km/h (sec)", 2.0, 20.0, 6.0)
+            seats = st.slider("Seats", 2, 8, 5)
+        with col2:
+            top_speed = st.number_input("Top Speed (km/h)", 100, 400, 200)
+            range_km = st.number_input("Range (km)", 100, 800, 400)
+            efficiency = st.number_input("Efficiency (Wh/km)", 100, 300, 180)
+
+    if st.button("Predict Price", type="primary", use_container_width=True):
         if model:
             input_df = pd.DataFrame({
                 'Battery': [battery],
@@ -397,16 +441,16 @@ if page == "EV Price Predictor":
             st.error("Model not loaded.")
 
 # ==============================
-# 2. EV Data Chatbot (REFACTORED)
+# 2. EV Data Chatbot
 # ==============================
-elif page == "EV Data Chatbot":
-    st.title("⚡ EV Chatbot")
-    st.markdown("Ask anything about the **active** dataset!")
+elif page == "💬 EV Data Chatbot":
+    st.title("💬 EV Data Chatbot")
+    st.markdown(f"Ask anything about the **{st.session_state.data_source}** dataset!")
 
     # Get active dataframe from session state
     df = st.session_state.active_df
     
-    # --- NEW: Guard Clause ---
+    # Guard Clause
     if not st.session_state.get('data_valid', False):
         st.error("Chatbot disabled: The active data file is missing required columns.")
         st.markdown(f"Please upload a valid CSV with columns like: `{', '.join(REQUIRED_COLUMNS)}` or reset to default data.")
@@ -417,10 +461,10 @@ elif page == "EV Data Chatbot":
                 "role": "assistant",
                 "content": (
                     "Hi! I'm your **EV Expert**\n\n"
-                    "I'm ready to answer questions about the **active dataset**.\n"
-                    "• `Tesla vs BMW`\n"
-                    "• `compare Model 3 vs i4`\n"
-                    "• `longest range`\n"
+                    "I'm ready to answer questions about the active dataset.\n"
+                    "• Try: **Tesla vs BMW**\n"
+                    "• Try: **compare Model 3 vs i4**\n"
+                    "• Try: **longest range**"
                 )
             }]
 
@@ -443,16 +487,16 @@ elif page == "EV Data Chatbot":
                 st.markdown(response)
 
 # ==============================
-# 3. Data Visualization (REFACTORED)
+# 3. Data Visualization
 # ==============================
-elif page == "Data Visualization":
-    st.title("EV Data Explorer")
-    st.markdown("Interactive charts for the **active** dataset")
+elif page == "📊 Data Visualization":
+    st.title("📊 Data Visualization")
+    st.markdown(f"Interactive charts for the **{st.session_state.data_source}** dataset")
 
     # Get active dataframe from session state
     df = st.session_state.active_df
 
-    # --- NEW: Guard Clause ---
+    # Guard Clause
     if not st.session_state.get('data_valid', False):
         st.error("Visualizations disabled: The active data file is missing required columns.")
         st.markdown(f"Please upload a valid CSV with columns like: `{', '.join(REQUIRED_COLUMNS)}` or reset to default data.")
@@ -461,20 +505,23 @@ elif page == "Data Visualization":
     else:
         viz_df = df[df['Estimated_US_Value'] > 0].copy()
         
-        # --- Sidebar Filters ---
-        st.sidebar.header("Chart Filters")
-        brands = sorted(viz_df['Brand'].unique())
-        sel_brands = st.sidebar.multiselect("Brands", brands, default=brands[:5] if len(brands) > 5 else brands)
+        # Filters
+        with st.expander("Show Chart Filters", expanded=True):
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                brands = sorted(viz_df['Brand'].unique())
+                sel_brands = st.multiselect("Brands", brands, default=brands[:5] if len(brands) > 5 else brands)
+                
+                all_seats = sorted(viz_df['Number_of_seats'].unique())
+                sel_seats = st.multiselect("Seats", all_seats, default=all_seats)
+            
+            with f_col2:
+                pmin, pmax = int(viz_df['Estimated_US_Value'].min()), int(viz_df['Estimated_US_Value'].max())
+                sel_price = st.slider("Price", pmin, pmax, (pmin, pmax), step=1000, format="$%d")
 
-        pmin, pmax = int(viz_df['Estimated_US_Value'].min()), int(viz_df['Estimated_US_Value'].max())
-        sel_price = st.sidebar.slider("Price", pmin, pmax, (pmin, pmax), step=1000, format="$%d")
+                rmin, rmax = int(viz_df['km_of_range'].min()), int(viz_df['km_of_range'].max())
+                sel_range = st.slider("Range (km)", rmin, rmax, (rmin, rmax), step=10)
 
-        rmin, rmax = int(viz_df['km_of_range'].min()), int(viz_df['km_of_range'].max())
-        sel_range = st.sidebar.slider("Range (km)", rmin, rmax, (rmin, rmax), step=10)
-        
-        all_seats = sorted(viz_df['Number_of_seats'].unique())
-        sel_seats = st.sidebar.multiselect("Seats", all_seats, default=all_seats)
-        
         # Filter dataframe
         filtered = viz_df[
             viz_df['Brand'].isin(sel_brands) &
@@ -484,40 +531,46 @@ elif page == "Data Visualization":
         ]
 
         if filtered.empty:
-            st.warning("No cars match the selected filters.")
+            st.info("ℹ️ No cars match the current filters. Try expanding your filter selection.")
         else:
             # --- Display Charts ---
             t1, t2, t3, t4, t5 = st.tabs(["Price vs Range", "Brands", "Performance", "Efficiency", "Top 10"])
             
             with t1:
+                st.subheader("Price vs. Range (Bubble Size by Battery)")
                 fig = px.scatter(filtered, x='km_of_range', y='Estimated_US_Value', color='Brand', size='Battery',
-                                 hover_data=['Model'], labels={'km_of_range': 'Range (km)', 'Estimated_US_Value': 'Price'})
+                                 hover_data=['Model'], labels={'km_of_range': 'Range (km)', 'Estimated_US_Value': 'Price (USD)'})
                 st.plotly_chart(fig, use_container_width=True)
             with t2:
+                st.subheader("Model Count per Brand")
                 counts = filtered['Brand'].value_counts().reset_index()
-                fig = px.bar(counts, x='Brand', y='count', color='count', title="Models per Brand")
+                fig = px.bar(counts, x='Brand', y='count', color='count', title="Models per Brand (Filtered)")
                 st.plotly_chart(fig, use_container_width=True)
             with t3:
+                st.subheader("Performance: 0-100 vs. Top Speed")
                 fig = px.scatter(filtered, x='0-100', y='Top_Speed', color='Brand', size='Estimated_US_Value',
-                                 hover_data=['Model'], labels={'0-100': '0-100 (sec)'})
-                fig.update_xaxes(autorange="reversed")
+                                 hover_data=['Model'], labels={'0-100': '0-100 (sec)', 'Top_Speed': 'Top Speed (km/h)'})
+                fig.update_xaxes(autorange="reversed") # Faster 0-100 is better (lower number)
                 st.plotly_chart(fig, use_container_width=True)
             with t4:
+                st.subheader("Average Efficiency by Brand (Lower is Better)")
                 eff = filtered.groupby('Brand')['Efficiency'].mean().sort_values().reset_index()
                 fig = px.bar(eff, x='Brand', y='Efficiency', color='Efficiency',
-                             color_continuous_scale='RdYlGn_r', title="Efficiency (Lower = Better)")
+                             color_continuous_scale='RdYlGn_r', title="Efficiency (Wh/km)")
                 st.plotly_chart(fig, use_container_width=True)
             with t5:
+                st.subheader("Top 10 Lists")
                 c1, c2 = st.columns(2)
                 with c1:
+                    st.markdown("#### Most Expensive")
                     top_price = filtered.nlargest(10, 'Estimated_US_Value')[['Brand', 'Model', 'Estimated_US_Value']]
                     top_price['Estimated_US_Value'] = top_price['Estimated_US_Value'].map('${:,.0f}'.format)
-                    st.subheader("Most Expensive")
-                    st.dataframe(top_price, use_container_width=True)
+                    st.dataframe(top_price, use_container_width=True, hide_index=True)
                 with c2:
+                    st.markdown("#### Longest Range")
                     top_range = filtered.nlargest(10, 'km_of_range')[['Brand', 'Model', 'km_of_range']]
-                    st.subheader("Longest Range")
-                    st.dataframe(top_range, use_container_width=True)
+                    top_range['km_of_range'] = top_range['km_of_range'].map('{:,.0f} km'.format)
+                    st.dataframe(top_range, use_container_width=True, hide_index=True)
             
             # --- Summary Metrics ---
             st.markdown("---")
