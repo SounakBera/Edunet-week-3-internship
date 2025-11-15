@@ -83,7 +83,7 @@ Follow these instructions to get a copy of the project up and running on your lo
 
 5. **Render direct link:**
    ```bash
-   https://edunet-week-3-internship.onrender.com/
+   https://edunet-week-3-internship.onrender.com
    ```
 
 ---
