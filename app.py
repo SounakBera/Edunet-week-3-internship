@@ -274,7 +274,7 @@ def process_query(query, df):
             f"• **Top Speed**: {int(car['Top_Speed'])} km/h\n"
             f"• **Battery**: {car['Battery']:.1f} kWh\n"
             f"• **Efficiency**: {int(car['Efficiency'])} Wh/km\n"
-_            f"• **Seats**: {int(car['Number_of_seats'])}\n"
+            f"• **Seats**: {int(car['Number_of_seats'])}\n"
             f"• **Towing**: {int(car['Towing_capacity_in_kg'])} kg"
         )
 
