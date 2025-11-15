@@ -4,14 +4,24 @@ import joblib
 import random
 import plotly.express as px
 import plotly.graph_objects as go
+import re
+
+# ==============================
+# App Constants
+# ==============================
+# Define columns required for the app's features to work
+REQUIRED_COLUMNS = [
+    'Brand', 'Model', 'Estimated_US_Value', 'km_of_range', 'Battery', 
+    '0-100', 'Top_Speed', 'Efficiency', 'Number_of_seats', 'Towing_capacity_in_kg'
+]
 
 # ==============================
 # Page Configuration
 # ==============================
-st.set_page_config(page_title="EV App", page_icon="EV", layout="wide")
+st.set_page_config(page_title="EV App", page_icon="⚡", layout="wide")
 
 # ==============================
-# Load Model
+# Load Model (No changes)
 # ==============================
 @st.cache_resource
 def load_model():
@@ -20,53 +30,119 @@ def load_model():
     except FileNotFoundError:
         st.error("Model file 'model.pkl' not found.")
         return None
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None
 
 model = load_model()
 
 # ==============================
-# Load Data
+# Data Loading & Processing (NEW LOGIC)
 # ==============================
-@st.cache_data
-def load_data():
+
+def load_default_data():
+    """Loads the default CSV file."""
     try:
-        df = pd.read_csv('cars_data_cleaned.csv')
-        df['Brand'] = df['Brand'].str.upper()
-        df['Model'] = df['Model'].str.strip()
-        return df
+        return pd.read_csv('cars_data_cleaned.csv')
     except FileNotFoundError:
-        st.error("Data file 'cars_data_cleaned.csv' not found.")
+        st.error("Default data file 'cars_data_cleaned.csv' not found.")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading default data: {e}")
         return pd.DataFrame()
 
-df = load_data()
-
-# Normalize model names for search
-if not df.empty:
-    df['Model_Key'] = df['Model'].str.lower().str.replace(r'\s+', ' ', regex=True)
-
-# ==============================
-# Enhanced Chatbot Logic
-# ==============================
-def process_query(query):
+def process_dataframe(df):
+    """
+    Checks, validates, and processes a DataFrame.
+    Returns the processed DataFrame and sets session_state flags.
+    """
     if df.empty:
-        return "Sorry, I can't access the car data right now. Please check the data file."
+        st.session_state.data_valid = False
+        return df
+
+    # Check for required columns
+    missing_cols = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    if missing_cols:
+        st.session_state.data_valid = False
+        st.warning(f"Uploaded file is missing required columns: {', '.join(missing_cols)}")
+        return df
+    
+    # If all columns are present, proceed with processing
+    st.session_state.data_valid = True
+    try:
+        processed_df = df.copy()
+        processed_df['Brand'] = processed_df['Brand'].str.upper()
+        processed_df['Model'] = processed_df['Model'].str.strip()
+        
+        # Create robust search keys
+        processed_df['Model_Key'] = processed_df['Model'].str.lower().str.replace(r'[^a-z0-9\s]', '', regex=True).str.replace(r'\s+', ' ', regex=True)
+        processed_df['Search_Key'] = (processed_df['Brand'].str.lower() + ' ' + processed_df['Model'].str.lower()).str.replace(r'[^a-z0-9\s]', '', regex=True).str.replace(r'\s+', ' ', regex=True)
+        
+        return processed_df
+    except Exception as e:
+        st.error(f"Error processing DataFrame: {e}")
+        st.session_state.data_valid = False
+        return df
+
+# ==============================
+# Helper Function (REFACTORED)
+# ==============================
+def find_car(query, df):
+    """
+    Finds the best match for a car query in the *provided* dataframe.
+    """
+    if df.empty or not st.session_state.get('data_valid', False):
+        return None
+        
+    q_norm = query.lower().strip().replace(r'[^a-z0-9\s]', '', regex=True).replace(r'\s+', ' ', regex=True)
+    
+    # 1. Try exact match on 'Brand Model'
+    exact_match = df[df['Search_Key'] == q_norm]
+    if not exact_match.empty:
+        return exact_match.iloc[0]
+        
+    # 2. Try exact match on 'Model' only
+    exact_model_match = df[df['Model_Key'] == q_norm]
+    if not exact_model_match.empty:
+        return exact_model_match.iloc[0]
+        
+    # 3. Try contains match on 'Brand Model'
+    contains_match = df[df['Search_Key'].str.contains(q_norm, na=False)]
+    if not contains_match.empty:
+        return contains_match.iloc[0]
+        
+    # 4. Try contains match on 'Model' only
+    contains_model_match = df[df['Model_Key'].str.contains(q_norm, na=False)]
+    if not contains_model_match.empty:
+        return contains_model_match.iloc[0]
+        
+    return None
+
+# ==============================
+# Chatbot Logic (REFACTORED)
+# ==============================
+def process_query(query, df):
+    """
+    Processes the user's query against the *provided* dataframe.
+    """
+    if df.empty or not st.session_state.get('data_valid', False):
+        return "Sorry, the loaded data is invalid or missing required columns. Please upload a valid EV data CSV."
 
     q = query.lower().strip()
     original_q = query.strip()
 
-    # === GREETINGS ===
+    # --- Standard Greetings/Help (Data-independent) ---
     if any(g in q for g in ["hi", "hello", "hey", "yo", "howdy", "greetings"]):
         return random.choice([
             "Hey there! Ready to dive into the world of EVs?",
             "Hi! I'm your EV guru. Ask me about **range**, **price**, **speed**, or **compare cars**!",
             "Hello! What EV are you dreaming about today?"
         ])
-
-    # === HELP / INFO ===
     if any(h in q for h in ["help", "what can you", "who are you", "info", "what do you do"]):
         return (
             "I'm your **EV Assistant**! Here's what I can do:\n\n"
             "• **Compare cars**: `compare Tesla Model 3 vs BMW i4`\n"
-            "• **Compare brands**: `compare Tesla vs BMW`\n"
+            "• **Compare brands**: `Tesla vs BMW`\n"
             "• **Car summary**: `tell me about Lucid Air`\n"
             "• **Best in class**: `longest range`, `cheapest car`, `fastest 0-100`\n"
             "• **Brand stats**: `best Tesla for towing`, `cheapest Porsche`\n"
@@ -74,15 +150,13 @@ def process_query(query):
             "• **List brands**: `brands`\n\n"
             "Try any of these!"
         )
-
-    # === THANKS / GOODBYE ===
     if any(t in q for t in ["thanks", "thank you", "thankyou", "bye", "goodbye", "see you"]):
         return random.choice([
-            "You're welcome! Charge safe!",
-            "Happy to help! Come back for more EV insights.",
-            "See you next time! Keep it electric!"
+            "You're welcome! Charge safe!", "Happy to help!", "See you next time!"
         ])
-
+    
+    # --- Data-Dependent Queries ---
+    
     # === LIST ALL BRANDS ===
     if "brand" in q and any(x in q for x in ["list", "all", "available", "show"]):
         brands = sorted(df['Brand'].unique())
@@ -111,90 +185,73 @@ def process_query(query):
         )
 
     # === BRAND DETECTION ===
-    all_brands = [b.lower() for b in df['Brand'].unique()]
-    found_brand = None
-    for b in all_brands:
-        if b in q:
-            found_brand = b.title()
-            break
-    df_context = df[df['Brand'] == found_brand] if found_brand else df
-    context = f"For **{found_brand}**" if found_brand else "Overall"
+    all_brands_lower = [b.lower() for b in df['Brand'].unique()]
+    found_brands_in_query = list(set([b.title() for b in all_brands_lower if b in q]))
 
-    # === BRAND-LEVEL COMPARISON: "compare Tesla vs BMW" ===
-    if "compare" in q and "vs" in q and any(b in q for b in all_brands):
-        parts = q.replace("compare", "").replace("vs", "|").split("|")
-        brand_names = [p.strip().title() for p in parts if p.strip()]
-        valid_brands = [b for b in brand_names if b in df['Brand'].unique()]
-        
-        if len(valid_brands) < 2:
-            return "Please compare **two valid brands**, e.g., `compare Tesla vs BMW`"
-        
-        b1, b2 = valid_brands[0], valid_brands[1]
+    # === BRAND-LEVEL COMPARISON ===
+    if "vs" in q and len(found_brands_in_query) >= 2:
+        b1, b2 = found_brands_in_query[0], found_brands_in_query[1]
         df1 = df[df['Brand'] == b1]
         df2 = df[df['Brand'] == b2]
-
         def brand_stats(d):
             return {
                 'Models': len(d),
-                'Avg_Price': d['Estimated_US_Value'].mean(),
-                'Avg_Range': d['km_of_range'].mean(),
-                'Best_Range': d['km_of_range'].max(),
-                'Cheapest': d['Estimated_US_Value'].min(),
-                'Fastest': d['0-100'].min()
+                'Avg Price': f"${d['Estimated_US_Value'].mean():,.0f}",
+                'Avg Range': f"{d['km_of_range'].mean():.0f} km",
+                'Best Range': f"{d['km_of_range'].max()} km",
+                'Cheapest': f"${d['Estimated_US_Value'].min():,.0f}",
+                'Fastest 0-100': f"{d['0-100'].min()} sec"
             }
-
         s1, s2 = brand_stats(df1), brand_stats(df2)
-
         return (
             f"### Brand Comparison: **{b1}** vs **{b2}**\n\n"
-            f"**{b1}** ({s1['Models']} models)\n"
-            f"• Avg Price: `${s1['Avg_Price']:,.0f}`\n"
-            f"• Avg Range: {s1['Avg_Range']:.0f} km\n"
-            f"• Longest Range: {s1['Best_Range']} km\n"
-            f"• Cheapest: `${s1['Cheapest']:,.0f}`\n"
-            f"• Fastest 0-100: {s1['Fastest']} sec\n\n"
-            f"**{b2}** ({s2['Models']} models)\n"
-            f"• Avg Price: `${s2['Avg_Price']:,.0f}`\n"
-            f"• Avg Range: {s2['Avg_Range']:.0f} km\n"
-            f"• Longest Range: {s2['Best_Range']} km\n"
-            f"• Cheapest: `${s2['Cheapest']:,.0f}`\n"
-            f"• Fastest 0-100: {s2['Fastest']} sec"
+            f"| Metric | **{b1}** | **{b2}** |\n"
+            "| :--- | :--- | :--- |\n"
+            f"| Models | {s1['Models']} | {s2['Models']} |\n"
+            f"| Avg Price | {s1['Avg Price']} | {s2['Avg Price']} |\n"
+            f"| Avg Range | {s1['Avg Range']} | {s2['Avg Range']} |\n"
+            f"| Best Range | {s1['Best Range']} | {s2['Best Range']} |\n"
+            f"| Cheapest | {s1['Cheapest']} | {s2['Cheapest']} |\n"
+            f"| Fastest 0-100 | {s1['Fastest 0-100']} | {s2['Fastest 0-100']} |"
         )
 
-    # === CAR COMPARISON: "compare Model 3 vs i4" ===
+    # === SET BRAND CONTEXT ===
+    found_brand = found_brands_in_query[0] if len(found_brands_in_query) == 1 else None
+    df_context = df[df['Brand'] == found_brand] if found_brand else df
+    context = f"For **{found_brand}**" if found_brand else "Overall"
+
+    # === CAR COMPARISON ===
     if "compare" in q and "vs" in q:
-        parts = q.replace("compare", "").replace("vs", "|").split("|")
-        if len(parts) < 2:
-            return "Please say: **compare [Car 1] vs [Car 2]** (e.g., `compare Model 3 vs i4`)"
-
-        car1_query = parts[0].strip()
+        parts = q.split("vs")
+        car1_query = parts[0].replace("compare", "").strip()
         car2_query = parts[1].strip()
+        
+        car1 = find_car(car1_query, df) # Pass df
+        car2 = find_car(car2_query, df) # Pass df
 
-        def find_car(query):
-            q_key = query.lower().replace(" ", "").replace("-", "")
-            matches = df[df['Model_Key'].str.contains(q_key, na=False)]
-            return matches.iloc[0] if not matches.empty else None
+        if car1 is None or car2 is None:
+            missing = f"**{car1_query}**" if car1 is None else f"**{car2_query}**"
+            return f"Couldn't find {missing}. Try a full name like **Tesla Model Y** or **BMW i4**."
 
-        car1 = find_car(car1_query)
-        car2 = find_car(car2_query)
+        def format_val(val, unit="", fmt=",.0f"):
+            if pd.isna(val): return "N/A"
+            try:
+                return f"{val:{fmt}} {unit}".strip()
+            except (ValueError, TypeError):
+                return f"{val} {unit}".strip()
 
-        if not car1 or not car2:
-            missing = car1_query if not car1 else car2_query
-            return f"Couldn't find **{missing}**. Try full name like **Tesla Model Y** or **BMW i4**."
-
-        def format_car(c):
-            return (
-                f"**{c['Brand']} {c['Model']}**\n"
-                f"Price: `${c['Estimated_US_Value']:,.0f}`\n"
-                f"Range: {int(c['km_of_range'])} km\n"
-                f"0-100: {c['0-100']} sec\n"
-                f"Top Speed: {int(c['Top_Speed'])} km/h\n"
-                f"Battery: {c['Battery']:.1f} kWh\n"
-                f"Seats: {int(c['Number_of_seats'])}\n"
-                f"Towing: {int(c['Towing_capacity_in_kg'])} kg"
-            )
-
-        return f"### Car Comparison\n\n{format_car(car1)}\n\n**VS**\n\n{format_car(car2)}"
+        return (
+            f"### Car Comparison: **{car1['Brand']} {car1['Model']}** vs **{car2['Brand']} {car2['Model']}**\n\n"
+            f"| Metric | **{car1['Model']}** | **{car2['Model']}** |\n"
+            "| :--- | :--- | :--- |\n"
+            f"| Price | {format_val(car1['Estimated_US_Value'], unit='$')} | {format_val(car2['Estimated_US_Value'], unit='$')} |\n"
+            f"| Range | {format_val(car1['km_of_range'], unit='km')} | {format_val(car2['km_of_range'], unit='km')} |\n"
+            f"| 0-100 | {format_val(car1['0-100'], unit='sec', fmt='.1f')} | {format_val(car2['0-100'], unit='sec', fmt='.1f')} |\n"
+            f"| Top Speed | {format_val(car1['Top_Speed'], unit='km/h')} | {format_val(car2['Top_Speed'], unit='km/h')} |\n"
+            f"| Battery | {format_val(car1['Battery'], unit='kWh', fmt='.1f')} | {format_val(car2['Battery'], unit='kWh', fmt='.1f')} |\n"
+            f"| Seats | {format_val(car1['Number_of_seats'], fmt='.0f')} | {format_val(car2['Number_of_seats'], fmt='.0f')} |\n"
+            f"| Towing | {format_val(car1['Towing_capacity_in_kg'], unit='kg')} | {format_val(car2['Towing_capacity_in_kg'], unit='kg')} |"
+        )
 
     # === CAR SUMMARY ===
     if any(x in q for x in ["tell me about", "info on", "summary", "details", "what is", "describe"]):
@@ -203,56 +260,41 @@ def process_query(query):
             if model_query.lower().startswith(prefix):
                 model_query = model_query[len(prefix):].strip()
                 break
-        q_key = model_query.lower().replace(" ", "").replace("-", "")
-        matches = df[df['Model_Key'].str.contains(q_key, na=False)]
-        if matches.empty:
+        
+        car = find_car(model_query, df) # Pass df
+        
+        if car is None:
             return f"Sorry, I couldn't find **{model_query}**. Try a full model name."
-        car = matches.iloc[0]
+        
         return (
             f"### {car['Brand']} {car['Model']}\n\n"
-            f"**Price**: `${car['Estimated_US_Value']:,.0f}`\n"
-            f"**Range**: {int(car['km_of_range'])} km\n"
-            f"**0-100 km/h**: {car['0-100']} sec\n"
-            f"**Top Speed**: {int(car['Top_Speed'])} km/h\n"
-            f"**Battery**: {car['Battery']:.1f} kWh\n"
-            f"**Efficiency**: {int(car['Efficiency'])} Wh/km\n"
-            f"**Seats**: {int(car['Number_of_seats'])}\n"
-            f"**Towing**: {int(car['Towing_capacity_in_kg'])} kg"
+            f"• **Price**: `${car['Estimated_US_Value']:,.0f}`\n"
+            f"• **Range**: {int(car['km_of_range'])} km\n"
+            f"• **0-100 km/h**: {car['0-100']} sec\n"
+            f"• **Top Speed**: {int(car['Top_Speed'])} km/h\n"
+            f"• **Battery**: {car['Battery']:.1f} kWh\n"
+            f"• **Efficiency**: {int(car['Efficiency'])} Wh/km\n"
+_            f"• **Seats**: {int(car['Number_of_seats'])}\n"
+            f"• **Towing**: {int(car['Towing_capacity_in_kg'])} kg"
         )
 
     # === EXTREME QUERIES (with brand context) ===
     if ("longest" in q or "most" in q or "best" in q) and "range" in q:
         car = df_context.loc[df_context['km_of_range'].idxmax()]
         return f"{context}, the **{car['Brand']} {car['Model']}** has the longest range: **{int(car['km_of_range'])} km**."
-
     if "cheapest" in q or ("lowest" in q and "price" in q):
         valid = df_context[df_context['Estimated_US_Value'] > 0]
-        if valid.empty:
-            return f"No priced cars found {context.lower()}."
+        if valid.empty: return f"No priced cars found {context.lower()}."
         car = valid.loc[valid['Estimated_US_Value'].idxmin()]
         return f"{context}, the cheapest is **{car['Brand']} {car['Model']}** at **${car['Estimated_US_Value']:,.0f}**."
-
     if ("fastest" in q or "quickest" in q) and ("0-100" in q or "acceleration" in q):
         car = df_context.loc[df_context['0-100'].idxmin()]
         return f"{context}, the fastest 0-100 is **{car['Brand']} {car['Model']}** in **{car['0-100']} sec**."
-
     if "towing" in q and any(x in q for x in ["most", "highest", "best", "max"]):
         car = df_context.loc[df_context['Towing_capacity_in_kg'].idxmax()]
         return f"{context}, the **{car['Brand']} {car['Model']}** tows the most: **{int(car['Towing_capacity_in_kg'])} kg**."
-
-    # === BRAND-SPECIFIC BEST (e.g., "best Tesla for range") ===
-    if found_brand and any(x in q for x in ["best", "top", "highest", "longest", "cheapest", "fastest"]):
-        if "range" in q:
-            car = df_context.loc[df_context['km_of_range'].idxmax()]
-            return f"Best **{found_brand}** for range: **{car['Model']}** — {int(car['km_of_range'])} km"
-        if "price" in q or "cheapest" in q:
-            car = df_context[df_context['Estimated_US_Value'] > 0].loc[df_context['Estimated_US_Value'].idxmin()]
-            return f"Cheapest **{found_brand}**: **{car['Model']}** — `${car['Estimated_US_Value']:,.0f}`"
-        if "0-100" in q or "acceleration" in q or "fastest" in q:
-            car = df_context.loc[df_context['0-100'].idxmin()]
-            return f"Fastest **{found_brand}**: **{car['Model']}** — {car['0-100']} sec"
-
-    # === BRAND SUMMARY (if only brand mentioned) ===
+        
+    # === BRAND SUMMARY ===
     if found_brand and len(q.split()) <= 3:
         count = len(df_context)
         avg_price = df_context['Estimated_US_Value'].mean()
@@ -267,20 +309,28 @@ def process_query(query):
     # === FALLBACK ===
     return random.choice([
         "I didn't quite get that. Try:\n"
-        "• `compare Tesla vs BMW`\n"
+        "• `Tesla vs BMW`\n"
         "• `tell me about Model Y`\n"
         "• `longest range Porsche`\n"
         "• `show summary`",
         "Hmm, try asking:\n"
         "• **Compare**: `Model 3 vs i4`\n"
         "• **Best**: `cheapest Tesla`\n"
-        "• **Stats**: `how many cars?`",
-        "You can ask me to **compare brands**, **summarize cars**, or find the **best in any category**!"
+        "• **Stats**: `how many cars?`"
     ])
 
 # ==============================
-# MAIN APP
+# MAIN APP & DATA MANAGEMENT
 # ==============================
+
+# Initialize session state for data
+if 'active_df' not in st.session_state:
+    default_df = load_default_data()
+    st.session_state.active_df = process_dataframe(default_df)
+    st.session_state.data_source = "Default Data"
+    st.session_state.data_valid = True # Assume default data is valid
+
+# --- Sidebar for Navigation and File Upload ---
 st.sidebar.title("EV App Navigation")
 page = st.sidebar.selectbox("Choose a feature", [
     "EV Price Predictor",
@@ -288,13 +338,37 @@ page = st.sidebar.selectbox("Choose a feature", [
     "Data Visualization"
 ])
 
+st.sidebar.divider()
+st.sidebar.header("Data Source")
+
+uploaded_file = st.sidebar.file_uploader("Upload your own EV CSV", type="csv")
+if uploaded_file is not None:
+    try:
+        user_df = pd.read_csv(uploaded_file)
+        st.session_state.active_df = process_dataframe(user_df)
+        st.session_state.data_source = uploaded_file.name
+    except Exception as e:
+        st.sidebar.error(f"Error reading file: {e}")
+        st.session_state.data_valid = False
+
+if st.sidebar.button("Reset to Default Data"):
+    default_df = load_default_data()
+    st.session_state.active_df = process_dataframe(default_df)
+    st.session_state.data_source = "Default Data"
+    st.rerun()
+
+st.sidebar.metric("Active Data Source", st.session_state.data_source)
+if not st.session_state.get('data_valid', True):
+    st.sidebar.error("Data is missing required columns. App features are limited.")
+
 # ==============================
-# 1. EV Price Predictor
+# 1. EV Price Predictor (No changes)
 # ==============================
 if page == "EV Price Predictor":
     st.image("https://cdn.pixabay.com/photo/2022/01/25/19/12/electric-car-6968348_1280.jpg", use_container_width=True)
     st.title("EV Price Predictor")
     st.markdown("### Tune specs → Get instant price estimate")
+    st.info("This predictor uses a pre-trained model and is independent of the uploaded data.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -323,102 +397,116 @@ if page == "EV Price Predictor":
             st.error("Model not loaded.")
 
 # ==============================
-# 2. EV Data Chatbot
+# 2. EV Data Chatbot (REFACTORED)
 # ==============================
 elif page == "EV Data Chatbot":
-    st.title("EV Chatbot")
-    st.markdown("Ask anything! Try: **compare Tesla vs BMW**, **tell me about Lucid Air**, or **cheapest Porsche**")
+    st.title("⚡ EV Chatbot")
+    st.markdown("Ask anything about the **active** dataset!")
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = [{
-            "role": "assistant",
-            "content": (
-                "Hi! I'm your **EV Expert**\n\n"
-                "Try asking:\n"
-                "• `compare Tesla vs BMW`\n"
-                "• `compare Model 3 vs i4`\n"
-                "• `tell me about Lucid Air`\n"
-                "• `longest range Porsche`\n"
-                "• `cheapest car`\n"
-                "• `show summary`"
-            )
-        }]
+    # Get active dataframe from session state
+    df = st.session_state.active_df
+    
+    # --- NEW: Guard Clause ---
+    if not st.session_state.get('data_valid', False):
+        st.error("Chatbot disabled: The active data file is missing required columns.")
+        st.markdown(f"Please upload a valid CSV with columns like: `{', '.join(REQUIRED_COLUMNS)}` or reset to default data.")
+    else:
+        # Initialize chat history
+        if "messages" not in st.session_state:
+            st.session_state.messages = [{
+                "role": "assistant",
+                "content": (
+                    "Hi! I'm your **EV Expert**\n\n"
+                    "I'm ready to answer questions about the **active dataset**.\n"
+                    "• `Tesla vs BMW`\n"
+                    "• `compare Model 3 vs i4`\n"
+                    "• `longest range`\n"
+                )
+            }]
 
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        # Display chat messages
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    if prompt := st.chat_input("Ask about EVs..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        response = process_query(prompt)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        with st.chat_message("assistant"):
-            st.markdown(response)
+        # Process user input
+        if prompt := st.chat_input("Ask about EVs..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            with st.spinner("Thinking..."):
+                response = process_query(prompt, df) # Pass df to function
+            
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            with st.chat_message("assistant"):
+                st.markdown(response)
 
 # ==============================
-# 3. Data Visualization
+# 3. Data Visualization (REFACTORED)
 # ==============================
 elif page == "Data Visualization":
     st.title("EV Data Explorer")
-    st.markdown("Interactive charts with **live filters**")
+    st.markdown("Interactive charts for the **active** dataset")
 
-    if df.empty:
+    # Get active dataframe from session state
+    df = st.session_state.active_df
+
+    # --- NEW: Guard Clause ---
+    if not st.session_state.get('data_valid', False):
+        st.error("Visualizations disabled: The active data file is missing required columns.")
+        st.markdown(f"Please upload a valid CSV with columns like: `{', '.join(REQUIRED_COLUMNS)}` or reset to default data.")
+    elif df.empty:
         st.warning("No data loaded.")
     else:
         viz_df = df[df['Estimated_US_Value'] > 0].copy()
-        st.sidebar.header("Filters")
+        
+        # --- Sidebar Filters ---
+        st.sidebar.header("Chart Filters")
         brands = sorted(viz_df['Brand'].unique())
-        sel_brands = st.sidebar.multiselect("Brands", brands, default=brands[:5])
+        sel_brands = st.sidebar.multiselect("Brands", brands, default=brands[:5] if len(brands) > 5 else brands)
 
         pmin, pmax = int(viz_df['Estimated_US_Value'].min()), int(viz_df['Estimated_US_Value'].max())
         sel_price = st.sidebar.slider("Price", pmin, pmax, (pmin, pmax), step=1000, format="$%d")
 
         rmin, rmax = int(viz_df['km_of_range'].min()), int(viz_df['km_of_range'].max())
         sel_range = st.sidebar.slider("Range (km)", rmin, rmax, (rmin, rmax), step=10)
-
-        bmin, bmax = float(viz_df['Battery'].min()), float(viz_df['Battery'].max())
-        sel_battery = st.sidebar.slider("Battery (kWh)", bmin, bmax, (bmin, bmax), step=0.1)
-
-        sel_seats = st.sidebar.multiselect("Seats", sorted(viz_df['Number_of_seats'].unique()), default=sorted(viz_df['Number_of_seats'].unique()))
-
+        
+        all_seats = sorted(viz_df['Number_of_seats'].unique())
+        sel_seats = st.sidebar.multiselect("Seats", all_seats, default=all_seats)
+        
+        # Filter dataframe
         filtered = viz_df[
             viz_df['Brand'].isin(sel_brands) &
             viz_df['Estimated_US_Value'].between(*sel_price) &
             viz_df['km_of_range'].between(*sel_range) &
-            viz_df['Battery'].between(*sel_battery) &
             viz_df['Number_of_seats'].isin(sel_seats)
         ]
 
         if filtered.empty:
-            st.warning("No cars match filters.")
+            st.warning("No cars match the selected filters.")
         else:
+            # --- Display Charts ---
             t1, t2, t3, t4, t5 = st.tabs(["Price vs Range", "Brands", "Performance", "Efficiency", "Top 10"])
-
+            
             with t1:
                 fig = px.scatter(filtered, x='km_of_range', y='Estimated_US_Value', color='Brand', size='Battery',
                                  hover_data=['Model'], labels={'km_of_range': 'Range (km)', 'Estimated_US_Value': 'Price'})
                 st.plotly_chart(fig, use_container_width=True)
-
             with t2:
                 counts = filtered['Brand'].value_counts().reset_index()
                 fig = px.bar(counts, x='Brand', y='count', color='count', title="Models per Brand")
                 st.plotly_chart(fig, use_container_width=True)
-
             with t3:
                 fig = px.scatter(filtered, x='0-100', y='Top_Speed', color='Brand', size='Estimated_US_Value',
                                  hover_data=['Model'], labels={'0-100': '0-100 (sec)'})
                 fig.update_xaxes(autorange="reversed")
                 st.plotly_chart(fig, use_container_width=True)
-
             with t4:
                 eff = filtered.groupby('Brand')['Efficiency'].mean().sort_values().reset_index()
                 fig = px.bar(eff, x='Brand', y='Efficiency', color='Efficiency',
                              color_continuous_scale='RdYlGn_r', title="Efficiency (Lower = Better)")
                 st.plotly_chart(fig, use_container_width=True)
-
             with t5:
                 c1, c2 = st.columns(2)
                 with c1:
@@ -430,11 +518,12 @@ elif page == "Data Visualization":
                     top_range = filtered.nlargest(10, 'km_of_range')[['Brand', 'Model', 'km_of_range']]
                     st.subheader("Longest Range")
                     st.dataframe(top_range, use_container_width=True)
-
-        # Summary
-        st.markdown("---")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Models", len(filtered))
-        c2.metric("Avg Price", f"${filtered['Estimated_US_Value'].mean():,.0f}")
-        c3.metric("Avg Range", f"{filtered['km_of_range'].mean():.0f} km")
-        c4.metric("Avg Battery", f"{filtered['Battery'].mean():.1f} kWh")
+            
+            # --- Summary Metrics ---
+            st.markdown("---")
+            st.subheader("Filtered Summary")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Models Found", len(filtered))
+            c2.metric("Avg Price", f"${filtered['Estimated_US_Value'].mean():,.0f}")
+            c3.metric("Avg Range", f"{filtered['km_of_range'].mean():.0f} km")
+            c4.metric("Avg Battery", f"{filtered['Battery'].mean():.1f} kWh")
