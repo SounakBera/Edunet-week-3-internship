@@ -36,7 +36,6 @@ df = load_data()
 # Chatbot Logic
 def process_query(query):
     query = query.lower().strip()
-
     if df.empty:
         return "Sorry, I can't access the car data at the moment."
 
@@ -61,41 +60,44 @@ def process_query(query):
 
     help_identity = ["help", "what can you do", "who are you", "info"]
     if query in help_identity:
-        return "I'm an EV chatbot! You can ask me questions like 'what's the fastest car?', 'cheapest car for TESLA', 'tell me about PORSCHE', 'highest towing capacity for FORD', 'quickest 0-100 for BMW', or 'longest range overall'."
+        return ("I'm an EV chatbot! You can ask me questions like "
+                "'what's the fastest car?', 'cheapest car for TESLA', "
+                "'tell me about PORSCHE', 'highest towing capacity for FORD', "
+                "'quickest 0-100 for BMW', or 'longest range overall'.")
 
     if query == "how many cars are there?":
         return f"There are {len(df)} car models in the dataset."
 
     elif query == "what brands are available?":
-        brands = df['Brand'].unique()
-        brands.sort()
+        brands = sorted(df['Brand'].unique())
         return f"Available brands: {', '.join(brands)}"
 
     all_brands = list(df['Brand'].unique())
-    
+
     def find_brand_in_query(q):
         for brand in all_brands:
             if brand.lower() in q:
                 return brand
         if q.startswith("info on "):
-            brand_name_from_query = q[len("info on "):].upper()
-            if brand_name_from_query in all_brands:
-                return brand_name_from_query
+            brand_name = q[len("info on "):].upper()
+            if brand_name in all_brands:
+                return brand_name
         return None
 
     found_brand = find_brand_in_query(query)
-    
     df_context = df
     context_text = "Overall"
     context_text_lower = "overall"
-    
+
     if found_brand:
         df_context = df[df['Brand'] == found_brand]
         context_text = f"For {found_brand}"
         context_text_lower = f"for {found_brand}"
-        if df_context.empty:
-            return f"I found {found_brand} in your query, but I have no data for that brand."
 
+    if df_context.empty:
+        return f"I found {found_brand} in your query, but I have no data for that brand."
+
+    # Longest Range
     if ("longest" in query or "most" in query or "highest" in query) and "range" in query:
         car = df_context.loc[df_context['km_of_range'].idxmax()]
         responses = [
@@ -105,6 +107,7 @@ def process_query(query):
         ]
         return random.choice(responses)
 
+    # Cheapest Car
     if "cheapest" in query or "lowest price" in query:
         non_zero_df = df_context[df_context['Estimated_US_Value'] > 0]
         if non_zero_df.empty:
@@ -116,7 +119,8 @@ def process_query(query):
             f"{context_text}, the {car['Brand']} {car['Model']} is the most affordable at ${car['Estimated_US_Value']:,.0f}."
         ]
         return random.choice(responses)
-    
+
+    # Fastest 0-100
     if ("fastest" in query or "quickest" in query) or ("0-100" in query):
         car = df_context.loc[df_context['0-100'].idxmin()]
         responses = [
@@ -126,6 +130,7 @@ def process_query(query):
         ]
         return random.choice(responses)
 
+    # Highest Towing
     if ("most" in query or "highest" in query) and "towing" in query:
         car = df_context.loc[df_context['Towing_capacity_in_kg'].idxmax()]
         responses = [
@@ -134,25 +139,33 @@ def process_query(query):
         ]
         return random.choice(responses)
 
+    # Brand Summary
     if found_brand:
         avg_val = df_context['Estimated_US_Value'].mean()
         avg_range = df_context['km_of_range'].mean()
         return f"I found {len(df_context)} models for {found_brand}. On average, they cost ${avg_val:,.2f} and have a range of {avg_range:,.1f} km."
 
-    else:
-        responses = [
-            "Sorry, I'm not sure how to answer that. Try asking about 'fastest', 'cheapest', or 'range'.",
-            "Hmm, I don't understand that. You can ask 'help' to see what I can do.",
-            "I didn't quite get that. Try 'longest range', 'cheapest car for TESLA', or 'tell me about PORSCHE'."
-        ]
-        return random.choice(responses)
+    # Fallback
+    responses = [
+        "Sorry, I'm not sure how to answer that. Try asking about 'fastest', 'cheapest', or 'range'.",
+        "Hmm, I don't understand that. You can ask 'help' to see what I can do.",
+        "I didn't quite get that. Try 'longest range', 'cheapest car for TESLA', or 'tell me about PORSCHE'."
+    ]
+    return random.choice(responses)
 
-# Main App
+
+# === MAIN APP ===
 st.sidebar.title("EV App Navigation")
 page = st.sidebar.selectbox("Choose a feature", ["EV Price Predictor", "EV Data Chatbot", "Data Visualization"])
 
+# ==============================
+# 1. EV Price Predictor
+# ==============================
 if page == "EV Price Predictor":
-    st.image("https://cdn.pixabay.com/photo/2022/01/25/19/12/electric-car-6968348_1280.jpg", use_column_width=True)
+    st.image(
+        "https://cdn.pixabay.com/photo/2022/01/25/19/12/electric-car-6968348_1280.jpg",
+        use_container_width=True
+    )
     st.title("EV Price Predictor")
     st.markdown("### Adjust the specifications to estimate the car's value.")
 
@@ -181,14 +194,22 @@ if page == "EV Price Predictor":
         else:
             st.error("Model could not be loaded.")
 
+# ==============================
+# 2. EV Data Chatbot
+# ==============================
 elif page == "EV Data Chatbot":
     st.title("EV Data Chatbot")
-    st.markdown("Ask me about the EV data! Examples: 'longest range', 'cheapest car for TESLA', 'tell me about PORSCHE', 'highest towing capacity for FORD', 'quickest 0-100 for BMW', or 'longest range overall'.")
+    st.markdown("Ask me about the EV data! Examples: 'longest range', 'cheapest car for TESLA', "
+                "'tell me about PORSCHE', 'highest towing capacity for FORD', "
+                "'quickest 0-100 for BMW', or 'longest range overall'.")
 
     if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Hi! I'm an EV chatbot. Ask me about the data. You can ask 'longest range', 'cheapest car', 'info on [Brand]', 'highest towing capacity for FORD', 'quickest 0-100 for BMW', or 'longest range overall'."}
-        ]
+        st.session_state.messages = [{
+            "role": "assistant",
+            "content": "Hi! I'm an EV chatbot. Ask me about the data. "
+                       "Try 'longest range', 'cheapest car', 'info on [Brand]', "
+                       "'highest towing capacity for FORD', or 'quickest 0-100 for BMW'."
+        }]
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -204,6 +225,9 @@ elif page == "EV Data Chatbot":
         with st.chat_message("assistant"):
             st.markdown(response)
 
+# ==============================
+# 3. Data Visualization
+# ==============================
 elif page == "Data Visualization":
     st.title("EV Data Visualization")
     st.markdown("Explore interactive charts with **real-time filters**.")
@@ -211,60 +235,42 @@ elif page == "Data Visualization":
     if df.empty:
         st.warning("No data available for visualization.")
     else:
-        # Prepare data
         viz_df = df.copy()
         viz_df = viz_df[viz_df['Estimated_US_Value'] > 0]
 
         # Sidebar Filters
         st.sidebar.header("Interactive Filters")
 
-        # Brand filter
         all_brands = sorted(viz_df['Brand'].unique())
         selected_brands = st.sidebar.multiselect(
-            "Select Brands", 
-            options=all_brands,
-            default=all_brands[:5]  # Default: first 5
+            "Select Brands", options=all_brands, default=all_brands[:5]
         )
 
-        # Price range
         price_min, price_max = int(viz_df['Estimated_US_Value'].min()), int(viz_df['Estimated_US_Value'].max())
         selected_price = st.sidebar.slider(
-            "Price Range (USD)", 
-            min_value=price_min, 
-            max_value=price_max, 
-            value=(price_min, price_max),
-            step=1000,
-            format="$%d"
+            "Price Range (USD)", min_value=price_min, max_value=price_max,
+            value=(price_min, price_max), step=1000, format="$%d"
         )
 
-        # Range filter
         range_min, range_max = int(viz_df['km_of_range'].min()), int(viz_df['km_of_range'].max())
         selected_range = st.sidebar.slider(
-            "Range (km)", 
-            min_value=range_min, 
-            max_value=range_max, 
-            value=(range_min, range_max),
-            step=10
+            "Range (km)", min_value=range_min, max_value=range_max,
+            value=(range_min, range_max), step=10
         )
 
-        # Battery filter
         battery_min, battery_max = float(viz_df['Battery'].min()), float(viz_df['Battery'].max())
         selected_battery = st.sidebar.slider(
-            "Battery Capacity (kWh)", 
-            min_value=battery_min, 
-            max_value=battery_max, 
-            value=(battery_min, battery_max),
-            step=0.1
+            "Battery Capacity (kWh)", min_value=battery_min, max_value=battery_max,
+            value=(battery_min, battery_max), step=0.1
         )
 
-        # Seats filter
         selected_seats = st.sidebar.multiselect(
-            "Number of Seats", 
+            "Number of Seats",
             options=sorted(viz_df['Number_of_seats'].unique()),
             default=sorted(viz_df['Number_of_seats'].unique())
         )
 
-        # Apply filters
+        # Apply Filters
         filtered_df = viz_df[
             (viz_df['Brand'].isin(selected_brands)) &
             (viz_df['Estimated_US_Value'].between(selected_price[0], selected_price[1])) &
@@ -276,7 +282,6 @@ elif page == "Data Visualization":
         if filtered_df.empty:
             st.warning("No cars match the selected filters. Try adjusting them.")
         else:
-            # Tabs
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "Price vs Range", "Brand Distribution", "Performance", "Efficiency", "Top Models"
             ])
@@ -298,9 +303,8 @@ elif page == "Data Visualization":
                 brand_counts = filtered_df['Brand'].value_counts().reset_index()
                 brand_counts.columns = ['Brand', 'Count']
                 fig = px.bar(
-                    brand_counts, x='Brand', y='Count',
-                    color='Count', color_continuous_scale='Viridis',
-                    title="EV Models per Brand"
+                    brand_counts, x='Brand', y='Count', color='Count',
+                    color_continuous_scale='Viridis', title="EV Models per Brand"
                 )
                 fig.update_layout(xaxis={'categoryorder': 'total descending'})
                 st.plotly_chart(fig, use_container_width=True)
@@ -322,8 +326,8 @@ elif page == "Data Visualization":
                 st.subheader("Average Efficiency by Brand")
                 eff_df = filtered_df.groupby('Brand')['Efficiency'].mean().reset_index().sort_values('Efficiency')
                 fig = px.bar(
-                    eff_df, x='Brand', y='Efficiency',
-                    color='Efficiency', color_continuous_scale='RdYlGn_r',
+                    eff_df, x='Brand', y='Efficiency', color='Efficiency',
+                    color_continuous_scale='RdYlGn_r',
                     title="Efficiency (Wh/km) – Lower is Better"
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -332,17 +336,21 @@ elif page == "Data Visualization":
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("Top 10 Most Expensive")
-                    top10 = filtered_df.nlargest(10, 'Estimated_US_Value')[['Brand', 'Model', 'Estimated_US_Value', 'km_of_range']]
+                    top10 = filtered_df.nlargest(10, 'Estimated_US_Value')[
+                        ['Brand', 'Model', 'Estimated_US_Value', 'km_of_range']
+                    ].copy()
                     top10['Estimated_US_Value'] = top10['Estimated_US_Value'].map('${:,.0f}'.format)
                     st.dataframe(top10.reset_index(drop=True), use_container_width=True)
 
                 with col2:
                     st.subheader("Top 10 Longest Range")
-                    range10 = filtered_df.nlargest(10, 'km_of_range')[['Brand', 'Model', 'km_of_range', 'Estimated_US_Value']]
+                    range10 = filtered_df.nlargest(10, 'km_of_range')[
+                        ['Brand', 'Model', 'km_of_range', 'Estimated_US_Value']
+                    ].copy()
                     range10['Estimated_US_Value'] = range10['Estimated_US_Value'].map('${:,.0f}'.format)
                     st.dataframe(range10.reset_index(drop=True), use_container_width=True)
 
-            # Summary
+            # Summary Metrics
             st.markdown("---")
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
