@@ -1,3 +1,5 @@
-Flask
+streamlit
 pandas
-gunicorn
+joblib
+plotly
+scikit-learn
